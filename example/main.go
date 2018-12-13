@@ -5,7 +5,7 @@ import (
 	"os"
 	"os/signal"
 
-	"github.com/michaeltansy/amtsocket"
+	amtsocket "github.com/michaeltansy/amt-websocket"
 )
 
 func main() {

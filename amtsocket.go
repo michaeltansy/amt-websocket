@@ -8,10 +8,13 @@ import (
 	"net/url"
 	"sync"
 
+	uuid "github.com/satori/go.uuid"
+
 	"github.com/gorilla/websocket"
 )
 
 type Socket struct {
+	ID                string
 	Conn              *websocket.Conn
 	WebsocketDialer   *websocket.Dialer
 	Url               string
@@ -36,11 +39,21 @@ type ConnectionOptions struct {
 	Subprotocols   []string
 }
 
+type SocketEvent interface {
+	OnPingReceived(data string, socket Socket)
+	OnPongReceived(data string, socket Socket)
+	OnConnected(socket Socket)
+	OnDisconnected(err error, socket Socket)
+	OnConnectError(err error, socket Socket)
+	OnTextMessage(message string, socket Socket)
+	OnBinaryMessage(data []byte, socket Socket)
+}
+
 // todo Yet to be done
 type ReconnectionOptions struct {
 }
 
-// New returns new socket connection
+// New create new socket connection
 func New(url string) Socket {
 	return Socket{
 		Url:           url,
@@ -63,6 +76,34 @@ func (socket *Socket) setConnectionOptions() {
 	socket.WebsocketDialer.Subprotocols = socket.ConnectionOptions.Subprotocols
 }
 
+// SetID set socketID of a connected user. It generates uuid as socketID by default, however, it also accepts customID
+func (socket *Socket) SetID(customID ...string) {
+	var ID string
+	if len(customID) > 0 {
+		ID = customID[0]
+	} else {
+		uuid, _ := uuid.NewV4()
+		ID = uuid.String()
+	}
+
+	socket.ID = ID
+}
+
+// GetID returns socketID of a connected user.
+func (socket *Socket) GetID() string {
+	return socket.ID
+}
+
+// SetConnectionStatus set connection status (true:connected, false:disconnected)
+func (socket *Socket) SetConnectionStatus(status bool) {
+	socket.IsConnected = status
+}
+
+// GetConnectionStatus get connection status (true:connected, false:disconnected)
+func (Socket *Socket) GetConnectionStatus() bool {
+	return Socket.IsConnected
+}
+
 // Connect connect socket
 func (socket *Socket) Connect() {
 	var err error
@@ -71,7 +112,7 @@ func (socket *Socket) Connect() {
 	socket.Conn, _, err = socket.WebsocketDialer.Dial(socket.Url, socket.RequestHeader)
 	if err != nil {
 		log.Println(err)
-		socket.IsConnected = false
+		socket.SetConnectionStatus(false)
 		if socket.OnConnectError != nil {
 			socket.OnConnectError(err, *socket)
 		}
@@ -81,7 +122,7 @@ func (socket *Socket) Connect() {
 	log.Println("Socket connected in server:", socket.Url)
 
 	if socket.OnConnected != nil {
-		socket.IsConnected = true
+		socket.SetConnectionStatus(true)
 		socket.OnConnected(*socket)
 	}
 
@@ -108,7 +149,7 @@ func (socket *Socket) Connect() {
 		result := defaultCloseHandler(code, text)
 		log.Println("Disconnected from server ", result)
 		if socket.OnDisconnected != nil {
-			socket.IsConnected = false
+			socket.SetConnectionStatus(false)
 			socket.OnDisconnected(errors.New(text), *socket)
 		}
 		return result
@@ -173,7 +214,7 @@ func (socket *Socket) Close() {
 	}
 	socket.Conn.Close()
 	if socket.OnDisconnected != nil {
-		socket.IsConnected = false
+		socket.SetConnectionStatus(false)
 		socket.OnDisconnected(err, *socket)
 	}
 }
